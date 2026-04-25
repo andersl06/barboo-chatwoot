@@ -1,0 +1,54 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - git
+  - dnf-utils
+
+write_files:
+  - path: /etc/sysctl.d/99-chatwoot.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      vm.swappiness=10
+      vm.overcommit_memory=1
+
+runcmd:
+  # Docker CE
+  - dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+  - dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  - systemctl enable --now docker
+  - usermod -aG docker opc
+
+  # EPEL (necessario para o certbot)
+  - dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+
+  # Nginx + Certbot
+  - dnf install -y nginx certbot python3-certbot-nginx
+  - systemctl enable nginx
+
+  # Firewall — abre HTTP e HTTPS no firewalld
+  - firewall-cmd --permanent --add-service=http
+  - firewall-cmd --permanent --add-service=https
+  - firewall-cmd --reload
+
+  # Swap 2 GB (importante para RAM de 4 GB com Chatwoot)
+  - fallocate -l 2G /swapfile
+  - chmod 600 /swapfile
+  - mkswap /swapfile
+  - swapon /swapfile
+  - echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
+  # Aplica sysctl
+  - sysctl --system
+
+final_message: |
+  VM pronta! Proximos passos via SSH:
+  1. git clone <repo> /opt/chatwoot && cd /opt/chatwoot
+  2. cp .env.example .env && nano .env
+  3. sudo certbot --nginx -d chat.seudominio.com.br
+  4. docker compose -f compose.oracle.yml build
+  5. docker compose -f compose.oracle.yml run --rm chatwoot-web bundle exec rails db:chatwoot_prepare
+  6. docker compose -f compose.oracle.yml up -d

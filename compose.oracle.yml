@@ -1,0 +1,104 @@
+name: barboo-chatwoot-oracle
+
+services:
+  chatwoot-web:
+    build:
+      context: .
+      dockerfile: docker/chatwoot/Dockerfile
+      args:
+        CHATWOOT_TAG: ${CHATWOOT_TAG:-latest}
+    image: ${CHATWOOT_IMAGE:-barboo/chatwoot:latest}
+    env_file:
+      - .env
+    environment:
+      RAILS_ENV: production
+      NODE_ENV: production
+      INSTALLATION_ENV: docker
+      FORCE_SSL: "true"
+      ENABLE_ACCOUNT_SIGNUP: "false"
+    command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "ruby -rsocket -e 'TCPSocket.new(\"127.0.0.1\", 3000).close'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    volumes:
+      - storage_data:/app/storage
+    restart: unless-stopped
+    networks:
+      - chatwoot_net
+
+  chatwoot-worker:
+    image: ${CHATWOOT_IMAGE:-barboo/chatwoot:latest}
+    pull_policy: never
+    env_file:
+      - .env
+    environment:
+      RAILS_ENV: production
+      NODE_ENV: production
+      INSTALLATION_ENV: docker
+      FORCE_SSL: "true"
+      ENABLE_ACCOUNT_SIGNUP: "false"
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - storage_data:/app/storage
+    networks:
+      - chatwoot_net
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE:-chatwoot}
+      POSTGRES_USER: ${POSTGRES_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USERNAME:-postgres} -d ${POSTGRES_DATABASE:-chatwoot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - chatwoot_net
+
+  redis:
+    image: redis:7-alpine
+    command: ["sh", "-c", "redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
+    env_file:
+      - .env
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - chatwoot_net
+
+volumes:
+  storage_data:
+  postgres_data:
+  redis_data:
+
+networks:
+  chatwoot_net:
+    name: barboo-chatwoot-oracle-net
