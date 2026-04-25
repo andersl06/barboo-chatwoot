@@ -1,0 +1,9 @@
+[build]
+dockerfilePath = "docker/chatwoot/Dockerfile"
+
+[deploy]
+startCommand = "bundle exec rails s -p $PORT -b 0.0.0.0"
+healthcheckPath = "/"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
